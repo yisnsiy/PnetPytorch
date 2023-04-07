@@ -1,10 +1,8 @@
-from config import data_params
-import numpy as np
 from data_access.data_access import Data
 
 
-class Pnetdata:
-    def __init__(self):
+class PnetData:
+    def __init__(self, data_params):
         if type(data_params) == list:
             self.data_params = data_params[0]
         else:

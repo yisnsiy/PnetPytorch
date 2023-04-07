@@ -1,4 +1,5 @@
-from os.path import join
+from os.path import join, exists
+from os import mkdir, makedirs
 from config import debug, local
 from IPython import display
 import numpy as np
@@ -125,11 +126,14 @@ class Animator:
                              saving_dir: str = None,
                              model_name: str = ''):
         plt.figure()
-        Animator.plot_confusion_matrix(cnf_matrix, classes=[0, 1],
-                                   title='Confusion matrix, without normalization')
+        Animator.plot_confusion_matrix(cnf_matrix,
+                                       classes=[0, 1],
+                                       title='Confusion matrix, without normalization')
         plt.show()
         if saving_dir is not None:
-            file_name = join(saving_dir, 'confusion_' + model_name)
+            if not exists(saving_dir):
+                makedirs(saving_dir)
+            file_name = join(saving_dir, f'{model_name}_' + 'confusion')
             plt.savefig(file_name)
 
         plt.figure()
@@ -137,7 +141,9 @@ class Animator:
                                    title='Normalized confusion matrix')
         plt.show()
         if saving_dir is not None:
-            file_name = join(saving_dir, 'confusion_normalized_' + model_name)
+            if not exists(saving_dir):
+                makedirs(saving_dir)
+            file_name = join(saving_dir, f'{model_name}_' +  'confusion_normalized')
             plt.savefig(file_name)
 
     @staticmethod
@@ -155,7 +161,9 @@ class Animator:
                 plt.text(a, b + 0.01, "%.2f" % ay[i], ha='center', fontsize=12)
             plt.show()
             if saving_dir is not None:
-                plt.savefig(join(saving_dir, "metics"))
+                if not exists(saving_dir):
+                    makedirs(saving_dir)
+                plt.savefig(join(saving_dir, f'{model_name}_' + "metrics"))
 
     @staticmethod
     def get_auc(y_prob, y_true,
@@ -175,7 +183,9 @@ class Animator:
         plt.legend(loc="lower right")
         auc_fig.show()
         if saving_dir is not None:
-            auc_fig.savefig(join(saving_dir, 'auc_curves'))
+            if not exists(saving_dir):
+                makedirs(saving_dir)
+            auc_fig.savefig(join(saving_dir, f'{model_name}_' + 'auc_curves'))
 
     @staticmethod
     def get_auprc(y_prob, y_true,
@@ -196,36 +206,7 @@ class Animator:
         plt.legend(loc="lower right")
         prc_fig.show()
         if saving_dir is not None:
-            prc_fig.savefig(join(saving_dir, 'auprc_curves'))
+            if not exists(saving_dir):
+                makedirs(saving_dir)
+            prc_fig.savefig(join(saving_dir, f'{model_name}_' + 'auprc_curves'))
 
-
-    # @staticmethod
-    # def get_sankey(likes_filtred, node_df):
-    #     scale = 1.
-    #     width = 600. / scale
-    #     height = 0.5 * width / scale
-    #     # linkes_filtred_.to_csv('linkes_filtred.csv')
-    #     # nodes_df.to_csv('nodes_df.csv')
-    #     data_trace, layout = get_data_trace(linkes_filtred_, nodes_df, height, width)
-    #     fig = dict(data_access=[data_trace], layout=layout)
-    #     fig = go.Figure(fig)
-    #     fig.show()
-    #     plotly.io.orca.config.executable = '/home/yis22/softwares/anaconda3/envs/pnet_env/bin/orca'
-    #     # plotly.io.orca.config.use_xvfb = False
-    #     plotly.io.orca.config.save()
-    #
-    #     filename = join(saving_dir, 'sankey_print.pdf')
-    #     fig.write_image(filename, scale=1, width=width, height=height, format='pdf')
-    #
-    #     filename = join(saving_dir, 'sankey_print.png')
-    #     fig.write_image(filename, scale=5, width=width, height=height, format='png')
-    #
-    #     from plotly.offline import plot
-    #     scale = 0.5
-    #     width = 600. / scale
-    #     height = 0.5 * width
-    #     data_trace, layout = get_data_trace(linkes_filtred_, nodes_df, height, width, fontsize=12)
-    #     fig = dict(data_access=[data_trace], layout=layout)
-    #     filename = 'sankey.html'
-    #     filename = join(saving_dir, filename)
-    #     plot(fig, filename=filename)

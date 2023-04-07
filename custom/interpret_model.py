@@ -1,13 +1,11 @@
-from os import makedirs
-from os.path import join
-from config import RESULT_PATH, REACTOM_PATHWAY_PATH, data_params, save_res, models_params
+from os.path import join, exists
+from config import RESULT_PATH, REACTOM_PATHWAY_PATH, data_params, only_interpret
 from data_access.data_access import Data
-from model.model import Model
 from custom.layer_custom import Diagonal
+from custom import sankey
 
 from captum.attr import LayerDeepLift, LayerIntegratedGradients
 import pandas as pd
-import torch
 from torch import nn, tanh
 import numpy as np
 import torch
@@ -20,8 +18,10 @@ class Submodel(nn.Module):
 
     def __init__(self, model, layer_names):
         super(Submodel, self).__init__()
-        self.dropout1 = nn.Dropout(p=models_params['params']['model_params']['dropout'][0])
-        self.dropout2 = nn.Dropout(p=models_params['params']['model_params']['dropout'][1])
+        # self.dropout1 = nn.Dropout(p=models_params['params']['model_params']['dropout'][0])
+        # self.dropout2 = nn.Dropout(p=models_params['params']['model_params']['dropout'][1])
+        self.dropout1 = model.dropout1
+        self.dropout2 = model.dropout2
         self.feature_names = model.feature_names
         for i, layer_name in enumerate(layer_names):
             self.__setattr__(layer_name, copy.deepcopy(model.get_submodule(layer_name)))
@@ -124,35 +124,44 @@ def get_pathway_names(all_node_ids):
     return ret_list
 
 
-def get_neuron_contribution(model, X, y, target=-1, detailed=False):
+def get_neuron_contribution(model, X, method_name, baseline=0):
     neuron_contribution = {}
     if isinstance(X, np.ndarray):
         X = torch.from_numpy(X).float()
+    if baseline == 'mean':
+        baseline = torch.mean(X, dim=-2, keepdim=True)
+    elif baseline == 'zero':
+        baseline = 0
     for i, layer_name in enumerate(layer_names[1:]):
         layer = model.get_submodule(layer_name)
-        ld = LayerDeepLift(model, layer)
-        # ld = LayerIntegratedGradients(model, layer)
-        contribution_layer_sample = ld.attribute(X, attribute_to_layer_input=True) # ensure neuron_contribution meat require about data_access format
-        # contribution_layer_sample = ld.attribute(X, baselines=torch.mean(X, dim=-2, keepdim=True), target=0,
-        #                                          attribute_to_layer_input=True)
-        # neuron_contribution[layer_names[i]] = torch.sum(contribution_layer_sample, dim=0)
+
+        if method_name == 'deeplift':
+            ld = LayerDeepLift(model, layer)
+            contribution_layer_sample = ld.attribute(X,
+                                                     baselines=baseline,
+                                                     attribute_to_layer_input=True) # ensure neuron_contribution meat require about data_access format
+        elif method_name == 'integratedgradients':
+            ld = LayerIntegratedGradients(model, layer)
+            contribution_layer_sample = ld.attribute(X,
+                                                     baselines=baseline,
+                                                     attribute_to_layer_input=True)
         neuron_contribution[layer_names[i]] = np.sum(contribution_layer_sample.detach().numpy(), axis=-2)
     return neuron_contribution
 
 
-def get_node_importance(model, X, y, target):
+def get_node_importance(model, X, method_name, baseline):
     """
 
     :param model: nn.Model object
     :param X: numpy array
-    :param y: numpy array/list of outputs
-    :param target: computing coef using output of targeted layre
+    :param method_name: name of method that interpret model
+    :param baseline reference input
     :return: list of pandas dataframes with weights for each layer
     """
     # model = Model(nn_model.model.input, nn_model.model.outputs)
     # model.compile('sgd', 'mse')
 
-    coef = get_neuron_contribution(model, X, y, target=target, detailed=True) # see graph in ipad for more detail.
+    coef = get_neuron_contribution(model, X, method_name, baseline)
     node_weights_dfs = {}
     # layers = []
     # for i, (w, w_samples, name) in enumerate(zip(coef, coef_detailed, nn_model.feature_names)):
@@ -290,27 +299,29 @@ def adjust_coef_with_graph_degree(node_importance_dfs, stats, layer_names):
     return node_importance
 
 
-def run():
-
-    # load model
-    # model = Model()
-    # if torch.cuda.is_available():
-    #     map_location = lambda storage, loc: storage.cuda()
-    # else:
-    #     map_location = 'cpu'
+def run(model_name=None, X=None, method_name='deeplift', baseline='zero'):
     map_location = 'cpu'
-    model = torch.load(join(RESULT_PATH, "model.pt"), map_location=map_location)
-    submodel = Submodel(model, layer_names[1:])
+    if model_name is not None:
+        filename = join(RESULT_PATH, f'{model_name}_' + 'model.pt')
+    else:
+        filename = join(RESULT_PATH, 'model.pt')
+    print(filename)
+    if exists(filename):
+        model = torch.load(filename, map_location=map_location)
+    else:
+        raise ValueError("model is not exist")
+    sub_model = Submodel(model, layer_names[1:])
     # model.eval()
 
     #load data_access
-    data_reader = Data(**data_params)
-    x_train, x_validate_, x_test_, y_train, y_validate_, y_test_, info_train, info_validate_, info_test_, cols = data_reader.get_train_validate_test()
-    X, Y, info = x_test_, y_test_, info_test_
-    # response = pd.DataFrame(Y, index=info, columns=['response'])
+    if only_interpret == True:
+        data_reader = Data(**data_params)
+        x_train, x_validate_, x_test_, y_train, y_validate_, y_test_, info_train, info_validate_, info_test_, cols = data_reader.get_train_validate_test()
+        X, Y, info = x_test_, y_test_, info_test_
+        response = pd.DataFrame(Y, index=info, columns=['response'])
 
     # get neuron contribution by deeplift rescale rule
-    node_weights_ = get_node_importance(submodel, X, Y, target="o6")
+    node_weights_ = get_node_importance(sub_model, X, method_name,  baseline)
     print("saving node weights")
     save_gradient_importance(node_weights_)
 
@@ -331,6 +342,9 @@ def run():
     print("saving adjusted import with degree matrix")
     filename = join(RESULT_PATH, 'extracted/node_importance_graph_adjusted.csv')
     node_importance.to_csv(filename)
+
+    sankey.run(model_name)
+
 
 if __name__ == "__main__":
     run()

@@ -6,11 +6,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
-import plotly
 
+# in order to use plt in remote server, please change your path
 os.environ["PATH"] =  os.environ["PATH"] + ':/home/yis22/softwares/anconda3/envs/pnet_pytorch/bin'
-
-
 
 
 def get_reactome_pathway_names():
@@ -633,7 +631,7 @@ def get_MDM4_nodes(links_df):
     # MDM4_subnet = tree.subgraph(nodes)
 
 
-def run():
+def run(model_name=None):
     # get reactome pathway ids and names
     reactome_pathway_df = get_reactome_pathway_names()
     id_to_name_dict = dict(zip(reactome_pathway_df.id, reactome_pathway_df.name))
@@ -814,10 +812,10 @@ def run():
     # plotly.io.orca.config.use_xvfb = False
     # plotly.io.orca.config.save()
 
-    filename = join(RESULT_PATH, 'sankey_print.pdf')
+    filename = join(RESULT_PATH, f'{model_name}_' + 'sankey_print.pdf')
     fig.write_image(filename, scale=1, width=width, height=height, format='pdf')
 
-    filename = join(RESULT_PATH, 'sankey_print.png')
+    filename = join(RESULT_PATH, f'{model_name}_' + 'sankey_print.png')
     fig.write_image(filename, scale=5, width=width, height=height, format='png')
 
     from plotly.offline import plot
@@ -826,7 +824,7 @@ def run():
     height = 0.5 * width
     data_trace, layout = get_data_trace(linkes_filtred_, nodes_df, height, width, fontsize=12)
     fig = dict(data=[data_trace], layout=layout)
-    filename = 'sankey.html'
+    filename = f'{model_name}_' + 'sankey.html'
     filename = join(RESULT_PATH, filename)
     plot(fig, filename=filename)
 
@@ -834,4 +832,4 @@ def run():
 #
 
 if __name__ == "__main__":
-    run()
+    run('pnet')

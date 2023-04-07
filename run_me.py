@@ -1,78 +1,113 @@
 from os.path import join
-from data_access.Pnetdata import Pnetdata
-from model.model import Model, model_train, model_predict
-from config import RESULT_PATH, debug, save_res, loss_weights, models_params
+
+import pandas as pd
+
+from data_access.pnet_data import PnetData
+from model.pnet import Pnet
+from model.train_utils import *
+from config import RESULT_PATH, debug, save_res, parameters
 from utils.general import try_gpu, create_data_iterator
 from utils.metrics import Metrics
 from custom import interpret_model
+from sklearn.utils import class_weight
 
 import torch
-from torch import optim, nn
+from torch import optim
 from torch.optim import lr_scheduler
-from torchkeras import summary
 
-class_weights = {0: 0.7458410351201479, 1: 1.5169172932330828}
-batch_size = 50
-epochs = 300
-penalty = 0.001
+
+# class_weights = {0: 0.7458410351201479, 1: 1.5169172932330828}
+# batch_size = 50
+# epochs = 300
+# penalty = 0.001
 
 # """
 device = try_gpu(3)
-device = torch.device('cpu')
-if debug is True:
-    epochs = 2
-    batch_size = 5
+# device = torch.device('cpu')
 
+results = None
+for p in parameters:
+    # get data_access
+    model_params = p['model_params']
+    data_params = model_params['data_params']
 
-# get data_access
-print("------loading data_access------")
-all_data = Pnetdata()
+    model_name = p['id']
+    methode_name = p['feature_importance']['method_name']
+    baseline = p['feature_importance']['baseline']
 
+    print("\n------------loading data------------\n")
+    all_data = PnetData(data_params)
 
-# build neural network
-print("------build model------")
-model = Model()
-if debug is False:
-    summary(model, input_shape=(27687, ))
+    # build neural network
+    print("\n------------build model------------\n")
+    if model_name.startswith('pnet'):
+        model = Pnet(p)
+    else:
+        raise ValueError('no suitable model')
 
+    # prepare data set
+    print("\n------------prepare data set------------\n")
+    fitting_params = p['fitting_params']
+    batch_size = fitting_params['batch_size'] if not debug else 1
+    train_iter = create_data_iterator(X=all_data.x_train,
+                                      y=all_data.y_train,
+                                      batch_size=batch_size,
+                                      shuffle=fitting_params['shuffle'],
+                                      data_type=torch.float32)
+    valid_iter = create_data_iterator(X=all_data.x_validate_,
+                                      y=all_data.y_validate_,
+                                      batch_size=batch_size,
+                                      shuffle=fitting_params['shuffle'],
+                                      data_type=torch.float32)
+    if fitting_params['class_weight'] == 'auto':
+        classes = np.unique(all_data.y_train)
+        class_weights = class_weight.compute_class_weight('balanced', classes, all_data.y_train.ravel())
+        class_weights = dict(zip(classes, class_weights))
+    else:
+        class_weights = {0: 1, 1: 1}
+    print(f'class_weights is {class_weights}')
 
-# prepare data set
-print("------prepare data set------")
-train_iter = create_data_iterator(X=all_data.x_train, y=all_data.y_train,
-                                     batch_size=batch_size, shuffle=True,
-                                     data_type=torch.float32, )
-valid_iter = create_data_iterator(X=all_data.x_validate_, y=all_data.y_validate_,
-                                     batch_size=batch_size, shuffle=True,
-                                     data_type=torch.float32)
+    # train model
+    print("\n------------train model------------\n")
+    loss_fn = get_loss_func(fitting_params['n_outputs'])
+    optimizer = optim.Adam(model.parameters(),
+                           lr=fitting_params['lr'],
+                           weight_decay=model_params['penalty'])
+    scheduler = lr_scheduler.StepLR(optimizer,
+                                    step_size=fitting_params['reduce_lr_after_nepochs']['epochs_drop'],
+                                    gamma=fitting_params['reduce_lr_after_nepochs']['drop'])
+    net = model_train(model,
+                      train_iter=train_iter,
+                      loss=loss_fn,
+                      optimizer=optimizer,
+                      test_iter=valid_iter,
+                      num_epochs=fitting_params['epoch'] if not debug else 2,
+                      scheduler=scheduler,
+                      loss_weights=fitting_params['loss_weights'],
+                      class_weights=class_weights,
+                      device=device)
 
+    # evaluate performance
+    print("\n------evaluate performance------\n")
+    X_test = torch.tensor(all_data.x_test_, dtype=torch.float32)
+    y_prob = model_predict(net, X_test, device)
+    saving_dir = join(RESULT_PATH, 'metrics') if save_res else None
+    res = Metrics.evaluate_classification_binary(y_prob.cpu().numpy(), all_data.y_test_, saving_dir, model_name)
+    data = list([res.values()])
+    if results is None:
+        col = list(res.keys())
+        results = pd.DataFrame(data=data, index=[model_name], columns=col)
+    else:
+        results.loc[model_name] = data
 
-# train model
-print("------train model------")
-loss_fn = [nn.BCELoss()] * 6
-optimizer = optim.Adam(model.parameters(), lr=models_params['params']['fitting_params']['lr'],
-                       weight_decay=penalty)
-scheduler = lr_scheduler.StepLR(optimizer,
-                                step_size=models_params['params']['fitting_params']['reduce_lr_after_nepochs']['epochs_drop'],
-                                gamma=models_params['params']['fitting_params']['reduce_lr_after_nepochs']['drop'])
-net = model_train(model, train_iter, loss_fn, optimizer,  valid_iter, epochs,
-                  scheduler, loss_weights, class_weights, device)
+    # saving model
+    if save_res is True:
+        filename = join(RESULT_PATH, f'{model_name}_' + 'model.pt')
+        torch.save(net, filename)  # save all parameters, feature names must be included, not generate again.
 
+    # explain model
+    if methode_name is not None:
+        interpret_model.run(model_name, X_test, methode_name, baseline)
 
-# evaluate performance
-print("------Evaluate performance------")
-X_test = torch.tensor(all_data.x_test_, dtype=torch.float32)
-y_prob = model_predict(net, X_test, device)
-saving_dir = RESULT_PATH if save_res else None
-if y_prob.is_cuda is True:
-    y_prob = y_prob.to(torch.device('cpu'))
-Metrics.evaluate_classification_binary(y_prob.numpy(), all_data.y_test_, saving_dir)
-
-
-# saving model
-if save_res is True:
-    filename = join(RESULT_PATH, 'model.pt')
-    torch.save(net, filename) # save all parameters, feature names must be included, not generate again.
-# """
-# explain model
-interpret_model.run()
+print(results)
 

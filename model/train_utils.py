@@ -1,121 +1,14 @@
-from utils.animator import Animator
-from utils.metrics import Metrics
-from utils.general import Accumulator, Timer
-from config import models_params, data_params
-from model.builder_utils import *
-from custom.layer_custom import CustomizedLinear, Diagonal
-from data_access.data_access import Data
-
 import torch
-from torch import nn, tanh, sigmoid
-from torch.utils.data import DataLoader
-from matplotlib import pyplot as plt
+import numpy as np
 from typing import Union, List, Mapping
+from torch import nn
+from torch.utils.data import DataLoader
 
-use_bias = models_params['params']['model_params']['use_bias']
-trainable_mask = models_params['params']['model_params']['trainable_mask']
+from utils.animator import Animator
+from utils.general import Timer, Accumulator
+from utils.metrics import Metrics
+from matplotlib import pyplot as plt
 
-
-class Model(nn.Module):
-
-    def __init__(self):
-        super(Model, self).__init__()
-
-        self.get_model_params()
-        self.get_model_data()
-
-        print("input dim: ", self.in_size)
-
-        # self.Tanh = nn.Tanh()
-        self.dropout1 = nn.Dropout(p=self.model_params['dropout'][0])
-        self.dropout2 = nn.Dropout(p=self.model_params['dropout'][1])
-        # self.sigmoid = nn.Sigmoid()
-
-        # each node in the next layer is connected to exactly three nodes of the input
-        # layer representing mutations, copy number amplification and copy number deletions.
-        # sparse layer 27687*9229
-        self.h0 = Diagonal(self.in_size, self.maps[0].shape[0], use_bias, trainable_mask)  # sparse layer 27687*9229
-        # sparse layer 9227*1387
-        self.h1 = CustomizedLinear(self.maps[0].shape[0], self.maps[0].shape[1], use_bias,
-                                    np.array(self.maps[0].values), trainable_mask)
-        # sparse layer 1387*1066
-        self.h2 = CustomizedLinear(self.maps[1].shape[0], self.maps[1].shape[1], use_bias,
-                                    np.array(self.maps[1].values), trainable_mask)
-        # sparse layer 1066*447
-        self.h3 = CustomizedLinear(self.maps[2].shape[0], self.maps[2].shape[1], use_bias,
-                                    np.array(self.maps[2].values), trainable_mask)
-        # sparse layer 447*147
-        self.h4 = CustomizedLinear(self.maps[3].shape[0], self.maps[3].shape[1], use_bias,
-                                    np.array(self.maps[3].values), trainable_mask)
-        # sparse layer 147*26
-        self.h5 = CustomizedLinear(self.maps[4].shape[0], self.maps[4].shape[1], use_bias,
-                                    np.array(self.maps[4].values), trainable_mask)
-        # self.h0 = nn.Linear(self.in_size, self.maps[0].shape[0])  # sparse layer 27687*9229
-        # self.h1 = nn.Linear(self.maps[0].shape[0], self.maps[0].shape[1])  # sparse layer 9227*1387
-        # self.h2 = nn.Linear(self.maps[1].shape[0], self.maps[1].shape[1])  # sparse layer 1387*1066
-        # self.h3 = nn.Linear(self.maps[2].shape[0], self.maps[2].shape[1])  # sparse layer 1066*447
-        # self.h4 = nn.Linear(self.maps[3].shape[0], self.maps[3].shape[1])  # sparse layer 447*147
-        # self.h5 = nn.Linear(self.maps[4].shape[0], self.maps[4].shape[1])  # sparse layer 147*26
-
-        self.l1 = nn.Linear(self.maps[0].shape[0], 1)
-        self.l2 = nn.Linear(self.maps[0].shape[1], 1)
-        self.l3 = nn.Linear(self.maps[1].shape[1], 1)
-        self.l4 = nn.Linear(self.maps[2].shape[1], 1)
-        self.l5 = nn.Linear(self.maps[3].shape[1], 1)
-        self.l6 = nn.Linear(self.maps[4].shape[1], 1)
-
-    def forward(self, input):
-        out = tanh(self.h0(input))
-        o1 = sigmoid(self.l1(out))
-        out = self.dropout1(out)
-
-        out = tanh(self.h1(out))
-        o2 = sigmoid(self.l2(out))
-        out = self.dropout2(out)
-
-        out = tanh(self.h2(out))
-        o3 = sigmoid(self.l3(out))
-        out = self.dropout2(out)
-
-        out = tanh(self.h3(out))
-        o4 = sigmoid(self.l4(out))
-        out = self.dropout2(out)
-
-        out = tanh(self.h4(out))
-        o5 = sigmoid(self.l5(out))
-        out = self.dropout2(out)
-
-        out = tanh(self.h5(out))
-        o6 = sigmoid(self.l6(out))
-        out = self.dropout2(out)
-
-        return torch.concat([o1, o2, o3, o4, o5, o6], dim=1)
-
-
-    def get_model_params(self):
-        self.params = models_params['params']
-        self.model_params = self.params['model_params']
-        self.fitting_params = self.params['fitting_params']
-        print("model params: ", self.params)
-
-    def get_model_data(self):
-        """get mask matrix that sparseNn have."""
-        data = Data(**data_params)
-        x, y, info, cols = data.get_data()
-        self.in_size = cols.shape[0]
-        print('x shape {} , y shape {} info {} genes {}'.format(x.shape, y.shape, info.shape, cols.shape))
-
-        if hasattr(cols, 'levels'):
-            genes = cols.levels[0]
-        else:
-            genes = cols;
-        self.feature_names = {}
-        self.feature_names['inputs'] = cols
-        if self.model_params['n_hidden_layers'] > 0:
-            maps = get_layer_maps(genes, self.model_params['n_hidden_layers'], 'root_to_leaf', False)
-            self.maps = maps;
-        for i, _maps in enumerate(maps):
-            self.feature_names[f'h{i}'] = _maps.index
 
 def get_loss(output: torch.Tensor,
              y: torch.Tensor,
@@ -194,6 +87,17 @@ def get_probability(output: torch.Tensor) -> torch.Tensor:
         # single output
     else:
         return output
+
+
+def get_loss_func(num_output: int = 1) -> list:
+    """Return loss function for single or multiple output.
+
+    Args:
+        num_output: number of output
+    Returns:
+        return list include loss function
+    """
+    return [nn.BCELoss()] * num_output
 
 
 def model_train(net, train_iter: DataLoader, loss=None, optimizer=None,

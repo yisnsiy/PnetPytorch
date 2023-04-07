@@ -1,16 +1,16 @@
-import torch
 import torch.nn as nn
-import math
 from custom.linearFunction import *
-import numpy as np
 import math
-from config import models_params
 
-
-full_train = models_params['params']['model_params']['full_train']
 
 class CustomizedLinear(nn.Module):
-    def __init__(self, input_features, output_features, bias=True, mask=None, trainable_mask=False):
+    def __init__(self,
+                 input_features,
+                 output_features,
+                 bias=True,
+                 mask=None,
+                 trainable_mask=False,
+                 full_train=False):
         """
         Argumens
         ------------------
@@ -24,6 +24,7 @@ class CustomizedLinear(nn.Module):
         super(CustomizedLinear, self).__init__()
         self.input_features = input_features
         self.output_features = output_features
+        self.full_train = full_train
 
         # nn.Parameter is a special kind of Tensor, that will get
         # automatically registered as Module's parameter once it's assigned
@@ -45,10 +46,8 @@ class CustomizedLinear(nn.Module):
             self.mask = nn.Parameter(mask, requires_grad=False)
             if trainable_mask is True:
                 self.trainable_mask = nn.Parameter(mask.clone().detach(), requires_grad=True)
-                # self.trainable_mask = nn.Parameter(mask, requires_grad=True)
             else:
                 self.register_parameter('trainable_mask', None)
-            # print('\n[!] CustomizedLinear: \n', self.weight.data_access.t())
         else:
             self.register_parameter('mask', None)
             self.register_parameter('trainable_mask', None)
@@ -63,7 +62,7 @@ class CustomizedLinear(nn.Module):
 
     def forward(self, input):
         # See the autograd section for explanation of what happens here.
-        if full_train is True and isinstance(self.trainable_mask, torch.Tensor):
+        if self.full_train is True and isinstance(self.trainable_mask, torch.Tensor):
             return input.mm((self.weight * self.trainable_mask).t())
         else:
             if isinstance(self.trainable_mask, torch.Tensor):
@@ -78,8 +77,14 @@ class CustomizedLinear(nn.Module):
             self.input_features, self.output_features,
             self.bias is not None, self.mask is not None)
 
+
 class Diagonal(nn.Module):
-    def __init__(self, input_features, output_features, bias=True, trainable_mask=False):
+    def __init__(self,
+                 input_features,
+                 output_features,
+                 bias=True,
+                 trainable_mask=False,
+                 full_train=False):
         """
         Argumens
         ------------------
@@ -93,6 +98,7 @@ class Diagonal(nn.Module):
         super(Diagonal, self).__init__()
         self.input_features = input_features
         self.output_features = output_features
+        self.full_train = full_train
 
         # nn.Parameter is a special kind of Tensor, that will get
         # automatically registered as Module's parameter once it's assigned
@@ -102,7 +108,7 @@ class Diagonal(nn.Module):
 
         if bias:
             self.bias = nn.Parameter(
-            	torch.Tensor(self.output_features))
+                torch.Tensor(self.output_features))
         else:
             # You should always register all possible parameters, but the
             # optional ones can be None if you want.
@@ -137,7 +143,7 @@ class Diagonal(nn.Module):
 
     def forward(self, input):
         # See the autograd section for explanation of what happens here.
-        if full_train is True and isinstance(self.trainable_mask, torch.Tensor):
+        if self.full_train is True and isinstance(self.trainable_mask, torch.Tensor):
             return input.mm((self.weight * self.trainable_mask).t())
         else:
             if isinstance(self.trainable_mask, torch.Tensor):
