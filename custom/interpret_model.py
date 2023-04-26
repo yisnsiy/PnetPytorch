@@ -1,5 +1,5 @@
 from os.path import join, exists
-from config import RESULT_PATH, REACTOM_PATHWAY_PATH, data_params, only_interpret
+from config import RESULT_PATH, REACTOM_PATHWAY_PATH, only_interpret, LOG_PATH
 from data_access.data_access import Data
 from custom.layer_custom import Diagonal
 from custom import sankey
@@ -14,10 +14,11 @@ import copy
 
 layer_names = ['inputs', 'h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'l6']
 
-class Submodel(nn.Module):
+
+class SubModel(nn.Module):
 
     def __init__(self, model, layer_names):
-        super(Submodel, self).__init__()
+        super(SubModel, self).__init__()
         # self.dropout1 = nn.Dropout(p=models_params['params']['model_params']['dropout'][0])
         # self.dropout2 = nn.Dropout(p=models_params['params']['model_params']['dropout'][1])
         self.dropout1 = model.dropout1
@@ -125,9 +126,10 @@ def get_pathway_names(all_node_ids):
 
 
 def get_neuron_contribution(model, X, method_name, baseline=0):
+    print(f"interpret model by {method_name}, and baseline is {baseline}")
     neuron_contribution = {}
     if isinstance(X, np.ndarray):
-        X = torch.from_numpy(X).float()
+        X = torch.tensor(X, dtype=torch.float32)
     if baseline == 'mean':
         baseline = torch.mean(X, dim=-2, keepdim=True)
     elif baseline == 'zero':
@@ -178,7 +180,7 @@ def get_node_importance(model, X, method_name, baseline):
     return node_weights_dfs
 
 
-def get_layer_weights(layer): # consider weather mask have
+def get_layer_weights(layer):  # consider weather mask have
     w = layer.weight.T.detach()
     if isinstance(layer, Diagonal):
         w_list = []
@@ -299,7 +301,7 @@ def adjust_coef_with_graph_degree(node_importance_dfs, stats, layer_names):
     return node_importance
 
 
-def run(model_name=None, X=None, method_name='deeplift', baseline='zero'):
+def run(model_name, X=None, method_name='deeplift', baseline='zero'):
     map_location = 'cpu'
     if model_name is not None:
         filename = join(RESULT_PATH, f'{model_name}_' + 'model.pt')
@@ -310,15 +312,12 @@ def run(model_name=None, X=None, method_name='deeplift', baseline='zero'):
         model = torch.load(filename, map_location=map_location)
     else:
         raise ValueError("model is not exist")
-    sub_model = Submodel(model, layer_names[1:])
+    sub_model = SubModel(model, layer_names[1:])
     # model.eval()
 
     #load data_access
     if only_interpret == True:
-        data_reader = Data(**data_params)
-        x_train, x_validate_, x_test_, y_train, y_validate_, y_test_, info_train, info_validate_, info_test_, cols = data_reader.get_train_validate_test()
-        X, Y, info = x_test_, y_test_, info_test_
-        response = pd.DataFrame(Y, index=info, columns=['response'])
+        X = torch.load(join(LOG_PATH, 'input.pt'))
 
     # get neuron contribution by deeplift rescale rule
     node_weights_ = get_node_importance(sub_model, X, method_name,  baseline)
@@ -347,4 +346,4 @@ def run(model_name=None, X=None, method_name='deeplift', baseline='zero'):
 
 
 if __name__ == "__main__":
-    run()
+    run(model_name='pnet_deeplift', method_name='integratedgradients')

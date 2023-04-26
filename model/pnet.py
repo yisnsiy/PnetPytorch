@@ -100,7 +100,7 @@ class Pnet(nn.Module):
         self.feature_names = {}
         self.feature_names['inputs'] = cols
         if self.model_params['n_hidden_layers'] > 0:
-            maps = get_layer_maps(genes, self.model_params['n_hidden_layers'], 'root_to_leaf', False)
+            maps = get_layer_maps(genes, self.model_params['n_hidden_layers'], 'root_to_leaf', self.model_params['add_unk_genes'])
             self.maps = maps
         for i, _maps in enumerate(maps):
             self.feature_names[f'h{i}'] = _maps.index

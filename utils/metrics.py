@@ -38,7 +38,7 @@ class Metrics:
         return float(cmp.type(y_true.dtype).sum())
 
     @staticmethod
-    def evaluate_classification_binary(y_prob, y_true, saving_dir: str = None, model_name: str = None):
+    def evaluate_classification_binary(y_prob, y_true, saving_dir: str = None, model_name: str = None, is_plot: bool = True):
         """Evaluate classification binary model."""
 
         fpr, tpr, thresholds = metrics.roc_curve(y_true, y_prob, pos_label=1)
@@ -72,12 +72,13 @@ class Metrics:
         best_effect['aupr'] = aupr
         best_effect['auc'] = auc
         y_pred = y_prob > th
-        cnf_matrix = metrics.confusion_matrix(y_true, y_pred)
-        Animator.get_confusion_matrix(cnf_matrix, saving_dir, model_name)
-        Animator.get_metrics(best_effect, saving_dir, model_name)
-        Animator.get_auc(y_prob, y_true, saving_dir, model_name)
-        Animator.get_auprc(y_prob, y_true, saving_dir, model_name)
-        print(f'best thresholds is {th}, auc is {auc}, auprc is {aupr}.')
-        print(best)
+        if is_plot:
+            cnf_matrix = metrics.confusion_matrix(y_true, y_pred)
+            Animator.get_confusion_matrix(cnf_matrix, saving_dir, model_name)
+            Animator.get_metrics(best_effect, saving_dir, model_name)
+            Animator.get_auc(y_prob, y_true, saving_dir, model_name)
+            Animator.get_auprc(y_prob, y_true, saving_dir, model_name)
+        # print(f'best thresholds is {th}, auc is {auc}, auprc is {aupr}.')
+        # print(best)
         return best_effect
 

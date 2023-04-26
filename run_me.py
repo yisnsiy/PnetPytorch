@@ -5,7 +5,7 @@ import pandas as pd
 from data_access.pnet_data import PnetData
 from model.pnet import Pnet
 from model.train_utils import *
-from config import RESULT_PATH, debug, save_res, parameters
+from config import RESULT_PATH, LOG_PATH, debug, save_res, parameters
 from utils.general import try_gpu, create_data_iterator
 from utils.metrics import Metrics
 from custom import interpret_model
@@ -14,6 +14,7 @@ from sklearn.utils import class_weight
 import torch
 from torch import optim
 from torch.optim import lr_scheduler
+from tensorboardX import SummaryWriter
 
 
 # class_weights = {0: 0.7458410351201479, 1: 1.5169172932330828}
@@ -22,7 +23,7 @@ from torch.optim import lr_scheduler
 # penalty = 0.001
 
 # """
-device = try_gpu(3)
+device = try_gpu(4)
 # device = torch.device('cpu')
 
 results = None
@@ -45,6 +46,8 @@ for p in parameters:
     else:
         raise ValueError('no suitable model')
 
+
+
     # prepare data set
     print("\n------------prepare data set------------\n")
     fitting_params = p['fitting_params']
@@ -66,6 +69,11 @@ for p in parameters:
     else:
         class_weights = {0: 1, 1: 1}
     print(f'class_weights is {class_weights}')
+
+    # writer = SummaryWriter('logs')
+    # dummy_input = torch.rand(1, all_data.x_train.shape[-1])
+    # with SummaryWriter(comment='pnet') as w:
+    #     w.add_graph(model, (dummy_input,))
 
     # train model
     print("\n------------train model------------\n")
@@ -98,7 +106,7 @@ for p in parameters:
         col = list(res.keys())
         results = pd.DataFrame(data=data, index=[model_name], columns=col)
     else:
-        results.loc[model_name] = data
+        results.loc[model_name] = res
 
     # saving model
     if save_res is True:
@@ -107,7 +115,9 @@ for p in parameters:
 
     # explain model
     if methode_name is not None:
+        torch.save(X_test, join(LOG_PATH, 'input.pt'))
         interpret_model.run(model_name, X_test, methode_name, baseline)
+    net.to('cpu')
 
 print(results)
 

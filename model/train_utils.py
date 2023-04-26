@@ -259,3 +259,94 @@ def model_predict(net, X_test, device):
         output = net(X_test)
         y_prob = get_probability(output)
     return y_prob
+
+
+def model_simply_train(net, train_iter: DataLoader,
+                       loss=None,
+                       optimizer=None,
+                       num_epochs: int = 50,
+                       scheduler=None,
+                       loss_weights=None,
+                       class_weights=None,
+                       device=None,
+                       ) -> nn.Module:
+    """network train model by train_data and evaluate model by eval_data
+    each epoch.
+
+    Args:
+        net: a model.
+        train_iter: training data_access whose type is DataLoader.
+        loss: loss function. if this parameter is none, default loss
+          function is Mean squared error.
+        optimizer: optimizer of model. if this parameter is none, default
+          optimizer is Stochastic gradient descent, and learning rate will
+          be set 0.05.
+        num_epochs: training round for all training data_access
+        scheduler: in order to set dynamically learn rate
+        loss_weights: Optional list or dictionary specifying scalar coefficients
+          (Python floats) to weight the loss contributions of different model
+          outputs. The loss value that will be minimized by the model will then
+          be the weighted sum of all individual losses, weighted by the
+          loss_weights coefficients. If a list, it is expected to have a 1:1
+          mapping to the model's outputs. If a dict, it is expected to map
+          output names (strings) to scalar coefficients.
+        class_weights: Optional dictionary mapping class indices (integers) to
+          a weight (float) value, used for weighting the loss function (during
+          training only). This can be useful to tell the model to "pay more
+          attention" to samples from an under-represented class.
+        device: cpu or gpu
+
+    Returns:
+        Net: updated model
+    """
+
+    if net is None:
+        raise ValueError('The network must not be empty.')
+    if train_iter is None:
+        raise ValueError('The training data_access must noe be empty.')
+    if not isinstance(train_iter, DataLoader):
+        raise TypeError(f'expect DataLoader, but get {type(train_iter)}')
+    assert (net is not None and train_iter is not None)
+
+    # def init_weights(m):
+    #     if type(m) == nn.Linear or type(m) == nn.Conv2d:
+    #         nn.init.xavier_uniform_(m.weight)
+    #
+    # net.apply(init_weights)
+    net.to(device)
+    if loss is None:
+        loss = nn.CrossEntropyLoss()
+    if optimizer is None:
+        optimizer = torch.optim.SGD(net.parameters(), lr=0.05)
+    if isinstance(loss, list):
+        for loss_fn in loss:
+            loss_fn.to(device)
+
+    num_batches = len(train_iter)
+    for epoch in range(num_epochs):
+        # Sum of training loss, sum of training accuracy, no. of examples
+        metric = Accumulator(3)
+        net.train()
+        for i, (X, y) in enumerate(train_iter):
+            optimizer.zero_grad()
+            X, y = X.to(device), y.to(device)
+            output = net(X)
+            l = get_loss(output, y, loss, loss_weights, class_weights, device)
+            y_prob = get_probability(output)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l * X.shape[0], Metrics.accuracy(y_prob, y), X.shape[0])
+            if i % 10 == 0 or i == num_batches - 1:
+                train_l = metric[0] / metric[2]
+                train_acc = metric[1] / metric[2]
+        scheduler.step()
+        print(f'Epoch {epoch + 1}/{num_epochs}, '
+              f'lr {optimizer.param_groups[0]["lr"]:.6f}, '
+              f'loss {train_l:.3f}, train acc {train_acc:.3f}')
+
+    print('\n')
+    print(f'loss {train_l:.3f}, train acc {train_acc:.3f}')
+    print(f'training in {metric[2]} samples')
+
+    return net

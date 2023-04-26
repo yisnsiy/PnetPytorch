@@ -1,4 +1,5 @@
 from os.path import join, realpath, dirname
+from copy import deepcopy
 
 # path param
 BASE_PATH = dirname(realpath(__file__))
@@ -11,11 +12,11 @@ LOG_PATH = join(BASE_PATH, 'logs')
 RESULT_PATH = join(BASE_PATH, 'results')
 
 # state param
-debug = False  # Is it debug mode
-local = False  # Is it remote running
-save_train = False  # Whether to save the model or not in result path
-save_res = True  # Whether to save evaluation of model or not in result path
-only_interpret = True # run interpret, no train model
+debug = False  # is it debug mode
+local = False  # is it remote running
+save_train = False  # whether to save the model or not in result path
+save_res = True  # whether to save evaluation of model or not in result path
+only_interpret = True
 
 # data param
 selected_genes = 'tcga_prostate_expressed_genes_and_cancer_genes.csv'
@@ -69,9 +70,18 @@ models_params = {
                            reduce_lr_after_nepochs=dict(drop=0.25, epochs_drop=50),
                            lr=0.001,),
     'feature_importance': {
-        'method_name': 'deeplift',  # zero
-        'baseline': 'mean',  # zero
+        'method_name': 'deeplift',  # integratedgradients
+        'baseline': 'zero',  # zero or mean
     },
 }
 
-parameters = [models_params]
+parameters = []
+pnet_deeplift = deepcopy(models_params)
+pnet_deeplift['id'] = 'pnet_deeplift'
+parameters.append(pnet_deeplift)
+
+# pnet_integratedgradients = deepcopy(models_params)
+# pnet_integratedgradients['id'] = 'pnet_integratedgradients'
+# pnet_integratedgradients['feature_importance']['method_name'] = 'integratedgradients'
+# parameters.append(pnet_integratedgradients)
+
